@@ -8,7 +8,7 @@ import javax.sql.DataSource
 
 object JDBCUtil {
   //初始化连接池
-  var dataSource: DataSource = init()
+  lazy val connection: Connection = init().getConnection
 
   //初始化连接池方法
   def init(): DataSource = {
@@ -19,11 +19,6 @@ object JDBCUtil {
     properties.setProperty("password", "1234")
     properties.setProperty("maxActive", "50")
     DruidDataSourceFactory.createDataSource(properties)
-  }
-
-  //获取MySQL连接
-  def getConnection: Connection = {
-    dataSource.getConnection
   }
 
 }

@@ -3,20 +3,17 @@ package com.leizj
 import com.alibaba.fastjson2.JSON
 import com.leizj.model.People
 import com.leizj.utils.JDBCUtil
-import org.apache.commons.net.ntp.TimeStamp
-import org.apache.spark.sql.{SaveMode, SparkSession}
+import org.apache.spark.sql.types.{DataTypes, StructField, StructType}
+import org.apache.spark.sql.{Row, SaveMode, SparkSession}
 import org.apache.spark.{SparkConf, SparkContext}
 
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
-import scala.util.parsing.json.JSONObject
 
-object Spark01_RDD_Memory {
+object Spark01_RDD_readFile_and_write2DB {
 
-  val lines: Int = 100000000
+  val lines: Int = 1000000
 
   val sc: SparkContext = getSparkContext()
 
@@ -39,11 +36,11 @@ object Spark01_RDD_Memory {
   }
 
   def test_RDD_read_and_writeToDb(): Unit = {
-    import ss.implicits._
-    val df = ss.read.json("output/part-00000")
-//    df.show(20)
 
-    val conn = JDBCUtil.getConnection
+    val df = ss.read.json("output/part-00000")
+    df.show(20)
+
+    val conn = JDBCUtil.connection
     val pstm = conn.prepareStatement(
       """create table if not exists people(
         |name varchar(10) null,
@@ -87,12 +84,12 @@ object Spark01_RDD_Memory {
       val people = new People(fullName, Random.nextInt(60))
       peoples.append(people)
 
-      if (peoples.length >= 1000000) {
+      if (peoples.length >= 100000) {
         val rdd = sc.makeRDD(peoples).map(_.toString)
-        rdd.saveAsTextFile("output/_" + i)
+        rdd.saveAsTextFile("output/test-" + i)
         i += 1
         peoples.clear()
-        count += 1000000
+        count += 100000
         println(s"已持久化条数：" + count/10000 + "w")
       }
     }
@@ -111,11 +108,41 @@ object Spark01_RDD_Memory {
     file.delete()
   }
 
+
+  def readFile2Db(path: String): Unit = {
+
+    val rdd = sc.textFile(path).map(s => {
+      val json = JSON.parseObject(s)
+      val name = json.getString("name")
+      val age = json.getIntValue("age")
+      Row(name, age)
+    })
+
+    val schema = StructType(List(
+      StructField("name", DataTypes.StringType, nullable = true),
+      StructField("age", DataTypes.IntegerType, nullable = true)
+    ))
+
+    ss.createDataFrame(rdd,schema)
+      .write
+      .format("jdbc")
+      .option("url", "jdbc:mysql://localhost:3306/spark_test")
+      .option("driver", "com.mysql.cj.jdbc.Driver")
+      .option("user", "root")
+      .option("password", "1234")
+      .option("dbTable", "people_test_2")
+      .mode(SaveMode.Append)
+      .save()
+
+  }
+
   def main(args: Array[String]): Unit = {
 
-    val df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ")
-    val date = df.parse("2021-07-05T01:00:36Z")
-    println(date)
+//    test_RDD_write_people()
+    val start = System.currentTimeMillis()
+    readFile2Db("output/test-*")
+
+    println((System.currentTimeMillis() - start) / 1000)
   }
 
 
